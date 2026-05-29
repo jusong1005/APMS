@@ -1,0 +1,47 @@
+import {
+  ActivitySquare,
+  BellRing,
+  BrainCircuit,
+  ClipboardList,
+  LineChart,
+  Settings
+} from 'lucide-react'
+
+export const navigationItems = [
+  {
+    key: 'dashboard',
+    label: '监控大盘',
+    icon: ActivitySquare,
+    breadcrumb: ['农产品价格监控', '监控大盘']
+  },
+  {
+    key: 'collection',
+    label: '采集任务管理',
+    icon: ClipboardList,
+    breadcrumb: ['农产品价格监控', '采集任务管理']
+  },
+  {
+    key: 'analysis',
+    label: '价格数据分析',
+    icon: LineChart,
+    breadcrumb: ['农产品价格监控', '价格数据分析']
+  },
+  {
+    key: 'prediction',
+    label: '趋势预测',
+    icon: BrainCircuit,
+    breadcrumb: ['农产品价格监控', '趋势预测']
+  },
+  {
+    key: 'alerts',
+    label: '价格预警中心',
+    icon: BellRing,
+    breadcrumb: ['农产品价格监控', '价格预警中心']
+  },
+  {
+    key: 'settings',
+    label: '系统配置',
+    icon: Settings,
+    breadcrumb: ['农产品价格监控', '系统配置']
+  }
+]
