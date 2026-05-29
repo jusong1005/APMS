@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-本项目为数科23-13第一组综合实训项目，围绕农产品价格采集监控平台完成数据采集、数据清洗、数据存储、统计分析、价格预测和可视化展示。平台通过整理农产品价格数据和辅助气象数据，构建结构化数据库，并以 Vue 前端 + Flask 后端的形式展示价格趋势、地区对比、气象影响和预测结果。
+本项目为数科23-13第一组综合实训项目，围绕农产品价格采集监控平台完成数据采集、数据清洗、数据存储、统计分析、价格预测和可视化展示。平台通过整理农产品价格数据和辅助气象数据，构建结构化数据库，并以 React 前端 + Flask 后端的形式展示价格趋势、地区对比、气象影响和预测结果。
 
 项目文档按实训要求保留 Kafka、HDFS、Spark、Redis、MySQL 等完整大数据平台架构设计；当前代码实现采用本地可运行的轻量方案，包括 CSV 归档、MySQL 主库、SQLite 降级测试、pandas 清洗、scikit-learn 建模和 ECharts 可视化。
 
@@ -11,7 +11,7 @@
 | 模块 | 当前实现 | 扩展方案 |
 | --- | --- | --- |
 | 后端语言 | Python 3.10+ | Java/SpringBoot 可扩展 |
-| 前端框架 | Vue 3 + Vite | DataV 监控大屏可扩展 |
+| 前端框架 | React 18 + Vite + Tailwind CSS | DataV 监控大屏可扩展 |
 | 后端框架 | Flask | FastAPI、SpringBoot 可扩展 |
 | 数据存储 | MySQL 8.0、SQLite、CSV | HDFS、Redis、Kafka 可扩展 |
 | 数据处理 | pandas、NumPy | Spark、PySpark、Spark SQL 可扩展 |
@@ -36,12 +36,10 @@ PM/
 │   ├── data_analyzer.py  # 数据分析模块
 │   ├── model_predictor.py# 模型预测模块
 │   └── pipeline.py       # 项目级数据流水线
-├── frontend/             # Vue 前端应用
+├── frontend/             # React 前端应用
 │   ├── src/
-│   │   ├── views/        # 页面组件
-│   │   ├── components/   # 通用组件
-│   │   ├── api/          # API 调用封装
-│   │   └── router/       # 路由配置
+│   │   ├── components/   # 布局、页面和通用组件
+│   │   └── lib/          # 前端工具函数
 │   └── package.json
 ├── tests/
 │   ├── properties/       # 属性测试
@@ -61,7 +59,7 @@ PM/
 4. 数据查询：支持按农产品、地区、日期、市场等条件查询。
 5. 数据分析：完成价格趋势、地区差异、气象影响和价格波动分析。
 6. 价格预测：基于历史价格和辅助特征进行价格预测，并输出误差指标。
-7. 可视化展示：通过 Vue + ECharts 展示概览指标、趋势图、对比图和预测结果。
+7. 可视化展示：通过 React + ECharts 展示概览指标、趋势图、对比图和预测结果。
 8. 测试验收：通过 pytest 和 Hypothesis 验证入库一致性和核心模块逻辑。
 
 ## 快速开始
