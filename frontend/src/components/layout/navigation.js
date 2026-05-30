@@ -4,8 +4,9 @@ import {
   BrainCircuit,
   ClipboardList,
   LineChart,
-  Settings
-} from 'lucide-react'
+  Settings,
+  UsersRound
+} from 'lucide-vue-next'
 
 export const navigationItems = [
   {
@@ -37,6 +38,12 @@ export const navigationItems = [
     label: '价格预警中心',
     icon: BellRing,
     breadcrumb: ['农产品价格监控', '价格预警中心']
+  },
+  {
+    key: 'users',
+    label: '用户权限管理',
+    icon: UsersRound,
+    breadcrumb: ['农产品价格监控', '用户权限管理']
   },
   {
     key: 'settings',

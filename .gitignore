@@ -35,6 +35,9 @@ pnpm-debug.log*
 # Generated project artifacts
 output/
 农产品价格采集监控平台/
+.hypothesis/
+.kiro/
+.pytest_cache/
 logs/
 *.log
 *.db

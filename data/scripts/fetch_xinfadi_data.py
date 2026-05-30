@@ -5,8 +5,8 @@
 接口：公开 JSON API，无需登录认证
 数据内容：每日各品种农产品的最低价、最高价、均价、产地信息
 
-采集品种：番茄、玉米、苹果
-时间范围：2024-01-01 ~ 2025-04-30（约16个月）
+采集品种：番茄、玉米、苹果、大白菜、白条猪
+默认时间范围：2023-01-01 ~ 今天
 数据特点：100%真实交易数据，每日更新
 
 使用方法：
@@ -16,23 +16,38 @@
 注意：请合理控制请求频率，避免对服务器造成压力
 """
 
+import argparse
 import os
+import sys
 import time
 import requests
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from config import RAW_PRICE_CSV
+from data.scripts.realtime_collector import (
+    PRODUCT_CATEGORY,
+    PRODUCT_NORMALIZE,
+    XINFADI_API_URL,
+    XINFADI_HEADERS,
+    parse_region,
+)
 
 # ============ 配置区域 ============
 
 # API 地址
-API_URL = "http://www.xinfadi.com.cn/getPriceData.html"
+API_URL = XINFADI_API_URL
 
 # 目标农产品
-PRODUCTS = ["番茄", "玉米", "苹果"]
+PRODUCTS = ["番茄", "玉米", "苹果", "大白菜", "白条猪"]
 
 # 时间范围
-START_DATE = "2024-01-01"
-END_DATE = "2025-04-30"
+DEFAULT_START_DATE = "2023-01-01"
+DEFAULT_END_DATE = date.today().strftime("%Y-%m-%d")
 
 # 每次请求的时间跨度（天）— 分批请求避免单次数据量过大
 BATCH_DAYS = 30
@@ -41,19 +56,13 @@ BATCH_DAYS = 30
 PAGE_LIMIT = 200
 
 # 请求间隔（秒）
-REQUEST_DELAY = 0.5
+REQUEST_DELAY = 0.25
 
 # 输出目录
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "raw")
 
 # 请求头
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Origin": "http://www.xinfadi.com.cn",
-    "Referer": "http://www.xinfadi.com.cn/priceDetail.html",
-}
+HEADERS = XINFADI_HEADERS
 
 # ============ 主逻辑 ============
 
@@ -108,24 +117,24 @@ def fetch_product_data(product_name: str, start_date: str, end_date: str) -> lis
     return all_records
 
 
-def fetch_all_data() -> pd.DataFrame:
+def fetch_all_data(products: list[str], start_date: str, end_date: str) -> pd.DataFrame:
     """
     分批获取所有产品的价格数据
     """
     all_data = []
 
-    start = datetime.strptime(START_DATE, "%Y-%m-%d")
-    end = datetime.strptime(END_DATE, "%Y-%m-%d")
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
 
-    for product in PRODUCTS:
+    for product in products:
         print(f"\n  📦 正在采集: {product}")
 
         # 分批按月请求
         batch_start = start
         product_total = 0
 
-        while batch_start < end:
-            batch_end = min(batch_start + timedelta(days=BATCH_DAYS), end)
+        while batch_start <= end:
+            batch_end = min(batch_start + timedelta(days=BATCH_DAYS - 1), end)
             start_str = batch_start.strftime("%Y-%m-%d")
             end_str = batch_end.strftime("%Y-%m-%d")
 
@@ -157,53 +166,18 @@ def transform_data(raw_df: pd.DataFrame) -> pd.DataFrame:
     """
     print("\n  正在转换数据格式...")
 
-    # 精确筛选目标品种（排除"番茄酱"、"玉米油"、"苹果蕉"等衍生品）
-    # 只保留品名完全匹配或属于核心品种的记录
-    EXACT_PRODUCTS = {"番茄", "玉米", "苹果"}
-    # 也接受这些变体（仍属于生鲜农产品）
-    ACCEPTED_VARIANTS = {"寒富苹果", "辽宁寒富苹果", "青苹果", "小玉米"}
-
-    valid_products = EXACT_PRODUCTS | ACCEPTED_VARIANTS
+    valid_products = set(PRODUCT_NORMALIZE.keys())
 
     # 筛选
     mask = raw_df["prodName"].isin(valid_products)
     filtered = raw_df[mask].copy()
     print(f"  精确筛选: {len(raw_df)} → {len(filtered)} 条（排除衍生加工品）")
 
-    # 统一品名（变体归类到主品种）
-    name_normalize = {
-        "番茄": "番茄",
-        "玉米": "玉米",
-        "小玉米": "玉米",
-        "苹果": "苹果",
-        "寒富苹果": "苹果",
-        "辽宁寒富苹果": "苹果",
-        "青苹果": "苹果",
-    }
-
-    # 产品类别映射
-    category_map = {
-        "番茄": "蔬菜类",
-        "玉米": "粮食类",
-        "苹果": "水果类",
-    }
-
-    # 产地到地区的映射
-    def parse_region(place):
-        """根据产地信息判断地区"""
-        if not place or pd.isna(place):
-            return "北京"
-        place_str = str(place)
-        # 包含山东相关标识
-        if "鲁" in place_str or "山东" in place_str:
-            return "山东"
-        return "北京"
-
-    normalized_name = filtered["prodName"].map(name_normalize).fillna(filtered["prodName"])
+    normalized_name = filtered["prodName"].map(PRODUCT_NORMALIZE).fillna(filtered["prodName"])
 
     result = pd.DataFrame({
         "product_name": normalized_name,
-        "product_category": normalized_name.map(category_map).fillna("其他"),
+        "product_category": normalized_name.map(PRODUCT_CATEGORY).fillna("其他"),
         "market_name": "北京新发地批发市场",
         "region": filtered["place"].apply(parse_region),
         "date": pd.to_datetime(filtered["pubDate"]).dt.strftime("%Y-%m-%d"),
@@ -232,19 +206,42 @@ def transform_data(raw_df: pd.DataFrame) -> pd.DataFrame:
     return aggregated
 
 
+def merge_existing_price_data(new_df: pd.DataFrame, replace: bool) -> pd.DataFrame:
+    if replace or not RAW_PRICE_CSV.exists():
+        return new_df
+
+    existing_df = pd.read_csv(RAW_PRICE_CSV)
+    combined = pd.concat([existing_df, new_df], ignore_index=True)
+    combined = combined.drop_duplicates(
+        subset=["product_name", "market_name", "region", "date", "unit"],
+        keep="last",
+    )
+    return combined.sort_values(["date", "product_name", "region", "market_name"]).reset_index(drop=True)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="采集北京新发地 2023-2026 历史价格数据")
+    parser.add_argument("--start-date", default=DEFAULT_START_DATE, help="开始日期 YYYY-MM-DD")
+    parser.add_argument("--end-date", default=DEFAULT_END_DATE, help="结束日期 YYYY-MM-DD")
+    parser.add_argument("--products", nargs="+", default=PRODUCTS, help="要采集的农产品名称")
+    parser.add_argument("--replace", action="store_true", help="覆盖 price_data.csv；默认与已有数据合并去重")
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     print("=" * 60)
     print("北京新发地批发市场 — 真实价格数据采集")
     print(f"数据来源: http://www.xinfadi.com.cn/")
-    print(f"目标品种: {', '.join(PRODUCTS)}")
-    print(f"时间范围: {START_DATE} ~ {END_DATE}")
+    print(f"目标品种: {', '.join(args.products)}")
+    print(f"时间范围: {args.start_date} ~ {args.end_date}")
     print("=" * 60)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # 第一步：采集数据
     print("\n[1/2] 正在从新发地 API 采集数据...")
-    raw_df = fetch_all_data()
+    raw_df = fetch_all_data(args.products, args.start_date, args.end_date)
 
     if raw_df.empty:
         print("\n❌ 未获取到数据，请检查网络连接")
@@ -260,8 +257,10 @@ def main():
         print("\n❌ 数据转换失败")
         return
 
+    result = merge_existing_price_data(result, args.replace)
+
     # 保存
-    output_path = os.path.join(OUTPUT_DIR, "price_data.csv")
+    output_path = str(RAW_PRICE_CSV)
     result.to_csv(output_path, index=False, encoding="utf-8-sig")
 
     print(f"\n{'=' * 60}")
