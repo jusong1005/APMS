@@ -8,64 +8,14 @@ pip install -r requirements.txt
 
 ## 脚本说明
 
-### 1. fetch_xinfadi_data.py — 农产品历史价格数据采集（真实数据）
-
-- **数据来源**：北京新发地农产品批发市场 (http://www.xinfadi.com.cn/)
-- **数据性质**：100% 真实交易数据，公开 API 获取
-- **采集内容**：番茄、玉米、苹果、大白菜、白条猪的每日批发价格（最高价、最低价、均价）
-- **默认时间范围**：2023-01-01 ~ 当天
-- **输出文件**：合并去重写入 `data/raw/price_data.csv`
-
-```bash
-python fetch_xinfadi_data.py
-```
-
-指定日期范围和品类：
-
-```bash
-python fetch_xinfadi_data.py --start-date 2023-01-01 --end-date 2026-05-30 --products 番茄 玉米 苹果 大白菜 白条猪
-```
-
-默认会与已有 `price_data.csv` 合并去重；如果需要完全重建价格文件：
-
-```bash
-python fetch_xinfadi_data.py --replace
-```
-
-### 2. fetch_weather_data.py — 全国历史气象数据采集（真实数据）
-
-- **数据来源**：Open-Meteo Historical Weather API（免费、无需注册）
-- **数据性质**：真实历史气象观测数据（基于ERA5再分析数据集）
-- **采集内容**：日均气温、最高/最低气温、降雨量、湿度、日照时长、天气状况
-- **时间范围**：默认从 `data/raw/price_data.csv` 的日期范围自动推断，且不超过昨天
-- **数据规模**：按全国省级地区采集，规模随价格数据时间范围变化
-- **采集方式**：按日期窗口分段请求，降低长时间范围接口超时或连接重置概率
-- **输出文件**：`data/raw/weather_data.csv`
-
-```bash
-python fetch_weather_data.py
-```
-
-只补指定省份：
-
-```bash
-python fetch_weather_data.py --regions 山东 河南 四川 江苏 浙江
-```
-
-默认会与已有 `weather_data.csv` 合并去重；如果需要完全重建天气文件：
-
-```bash
-python fetch_weather_data.py --replace
-```
-
-### 3. realtime_collector.py — 实时价格与气象采集
+### 1. realtime_collector.py — 实时价格与气象采集预览
 
 - **主价格来源**：农业农村部重点农产品市场信息平台 `https://ncpscxx.moa.gov.cn/`
 - **补充价格来源**：北京新发地农产品批发市场公开接口 `http://www.xinfadi.com.cn/getPriceData.html`
 - **气象来源**：Open-Meteo Forecast API `https://api.open-meteo.com/v1/forecast`
 - **采集内容**：全国市场价格分布、无锡朝阳电子结算价格、近几天新发地价格记录、今日近实时气象记录
 - **默认品类**：番茄、玉米、苹果、大白菜、白条猪（白条猪归一为猪肉）
-- **输出文件**：追加并去重写入 `data/raw/price_data.csv` 和 `data/raw/weather_data.csv`
+- **定位**：仅负责网页/API 采集和字段提取，不做清洗、不入库
 
 已验证可直接访问的官方接口：
 
@@ -81,22 +31,59 @@ python fetch_weather_data.py --replace
 
 当前脚本会把官方价格源转换为统一字段：`product_name`、`product_category`、`market_name`、`region`、`date`、`highest_price`、`lowest_price`、`average_price`、`unit`。官方源不可用时，新发地接口仍会作为补充来源继续采集。
 
-单次实时采集：
+单次采集预览：
 
 ```bash
 python realtime_collector.py --lookback-days 3
 ```
 
-采集后立即刷新清洗后的 processed 数据：
-
-```bash
-python realtime_collector.py --lookback-days 3 --refresh-processed
-```
-
 每 10 分钟循环采集一次：
 
 ```bash
-python realtime_collector.py --interval-seconds 600 --refresh-processed
+python realtime_collector.py --interval-seconds 600
+```
+
+### 2. kafka_realtime_producer.py — 网页实时数据写入 Kafka
+
+该脚本用于实现完整实时链路：
+
+```text
+网页/API 实时采集 -> raw_price_topic/raw_weather_topic -> Scala/Spark 清洗 -> MongoDB
+```
+
+Kafka 负责接收和缓冲实时消息；Python 只负责把原始采集事件写入 Kafka。字段校验、类型转换、日期标准化、异常数据分流和 MongoDB 写入由 `scala-cleaner` 模块完成。
+
+环境变量可按需覆盖：
+
+| 变量 | 默认值 | 说明 |
+|------|------|------|
+| KAFKA_BOOTSTRAP_SERVERS | 127.0.0.1:9092 | Kafka broker 地址 |
+| KAFKA_GROUP_ID | agri-price-realtime-consumer | 消费者组 |
+| KAFKA_RAW_PRICE_TOPIC | raw_price_topic | 原始价格数据 Topic |
+| KAFKA_RAW_WEATHER_TOPIC | raw_weather_topic | 原始气象数据 Topic |
+
+启动 Kafka 和 MongoDB 后，先创建 Topic：
+
+```bash
+python kafka_realtime_producer.py create-topics
+```
+
+只采集并查看将要发送到 Kafka 的事件数量，不连接 Kafka：
+
+```bash
+python kafka_realtime_producer.py produce --lookback-days 3 --dry-run
+```
+
+采集网页实时数据并写入 Kafka 原始 Topic：
+
+```bash
+python kafka_realtime_producer.py produce --lookback-days 3
+```
+
+每 10 分钟采集一次并持续写入 Kafka：
+
+```bash
+python kafka_realtime_producer.py produce --lookback-days 3 --interval-seconds 600
 ```
 
 ## 数据特点

@@ -64,8 +64,8 @@ const refreshOptions = [
 ]
 
 const databaseStatus = [
-  { name: 'MySQL', role: '生产行情库', status: 'connected', latency: '18 ms', endpoint: 'agri_market_prod' },
-  { name: 'SQLite', role: '本地回放库', status: 'disconnected', latency: '--', endpoint: 'local_cache.db' }
+  { name: 'MongoDB', role: '生产行情库', status: 'connected', latency: '18 ms', endpoint: 'agri_price' },
+  { name: 'Redis', role: '热点缓存库', status: 'connected', latency: '3 ms', endpoint: '127.0.0.1:6379' }
 ]
 
 const auditLogs = [
@@ -333,7 +333,7 @@ const executeDangerAction = () => {
                 </span>
                 <div>
                   <h2 class="text-base font-semibold text-slate-950">数据库状态</h2>
-                  <p class="mt-1 text-sm text-slate-500">MySQL 与 SQLite 连接态势</p>
+                  <p class="mt-1 text-sm text-slate-500">MongoDB 与 Redis 连接态势</p>
                 </div>
               </div>
             </template>

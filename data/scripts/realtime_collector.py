@@ -29,9 +29,6 @@ import requests
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.data_cleaner import DataCleaner
-from config import RAW_PRICE_CSV, RAW_WEATHER_CSV
-
 MOA_BASE_URL = "https://ncpscxx.moa.gov.cn"
 MOA_WIDE_MARKET_PRICE_URL = f"{MOA_BASE_URL}/product/common-price-avg/getWideMarketVarietyData"
 MOA_MARKET_PRICE_URL = f"{MOA_BASE_URL}/product/piMarketPrice/getMarketDatas"
@@ -563,56 +560,10 @@ def _safe_round(value: object) -> float | None:
     return round(float(value), 2)
 
 
-def append_and_deduplicate(csv_path: Path, new_df: pd.DataFrame, subset: List[str]) -> Dict[str, object]:
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    if csv_path.exists():
-        existing_df = pd.read_csv(csv_path)
-    else:
-        existing_df = pd.DataFrame(columns=new_df.columns)
-
-    if new_df.empty:
-        return {
-            "path": str(csv_path),
-            "new_records": 0,
-            "total_records": int(len(existing_df)),
-            "updated_records": 0,
-        }
-
-    combined = pd.concat([existing_df, new_df], ignore_index=True)
-    before = len(combined)
-    combined = combined.drop_duplicates(subset=subset, keep="last")
-    if "date" in combined.columns:
-        combined = combined.sort_values("date")
-    combined.to_csv(csv_path, index=False, encoding="utf-8-sig")
-
-    return {
-        "path": str(csv_path),
-        "new_records": int(len(new_df)),
-        "total_records": int(len(combined)),
-        "updated_records": int(before - len(combined)),
-    }
-
-
-def run_once(products: List[str], lookback_days: int, refresh_processed: bool) -> Dict[str, object]:
+def collect_once(products: List[str], lookback_days: int) -> Dict[str, object]:
     price_df = fetch_realtime_price(products, lookback_days)
     regions = sorted(price_df["region"].dropna().unique().tolist()) if not price_df.empty else ["北京", "山东"]
     weather_df = fetch_realtime_weather(regions, date.today())
-
-    price_summary = append_and_deduplicate(
-        RAW_PRICE_CSV,
-        price_df,
-        ["product_name", "market_name", "region", "date", "unit"],
-    )
-    weather_summary = append_and_deduplicate(
-        RAW_WEATHER_CSV,
-        weather_df,
-        ["region", "date"],
-    )
-
-    processed_summary = None
-    if refresh_processed:
-        processed_summary = DataCleaner().run()
-
     return {
         "collected_at": datetime.now().isoformat(timespec="seconds"),
         "sources": {
@@ -622,25 +573,25 @@ def run_once(products: List[str], lookback_days: int, refresh_processed: bool) -
         },
         "products": products,
         "regions": regions,
-        "price": price_summary,
-        "weather": weather_summary,
-        "processed": processed_summary,
+        "price_records": int(len(price_df)),
+        "weather_records": int(len(weather_df)),
+        "price_sample": price_df.head(1).to_dict(orient="records"),
+        "weather_sample": weather_df.head(1).to_dict(orient="records"),
     }
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="实时采集农产品价格和气象数据")
+    parser = argparse.ArgumentParser(description="实时采集农产品价格和气象数据，仅用于预览采集结果")
     parser.add_argument("--products", nargs="+", default=DEFAULT_PRODUCTS, help="要采集的农产品名称")
     parser.add_argument("--lookback-days", type=int, default=3, help="向前回看天数，避免当天接口尚未更新")
     parser.add_argument("--interval-seconds", type=int, default=0, help="循环采集间隔；0 表示只采集一次")
-    parser.add_argument("--refresh-processed", action="store_true", help="采集后立即运行清洗，刷新 processed CSV")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     while True:
-        summary = run_once(args.products, args.lookback_days, args.refresh_processed)
+        summary = collect_once(args.products, args.lookback_days)
         print(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
         if args.interval_seconds <= 0:
             break
