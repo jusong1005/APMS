@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   BellRing,
@@ -15,10 +15,12 @@ import {
   UserRound,
   Wheat
 } from 'lucide-vue-next'
+import { assetUrl, profileApi, tokenStore } from '../../lib/api'
 
 const activeTab = ref('basic')
 const saving = ref(false)
 const avatarPreview = ref('')
+const avatarFile = ref(null)
 
 const userInfo = reactive({
   name: '张建国',
@@ -101,6 +103,7 @@ const handleAvatarChange = (uploadFile) => {
   const rawFile = uploadFile.raw
   if (!rawFile || !beforeAvatarUpload(rawFile)) return
   if (avatarPreview.value) URL.revokeObjectURL(avatarPreview.value)
+  avatarFile.value = rawFile
   avatarPreview.value = URL.createObjectURL(rawFile)
   userInfo.avatar = avatarPreview.value
   ElMessage.success('头像裁剪预览已更新')
@@ -114,12 +117,56 @@ const handleSave = async () => {
 
   saving.value = true
   try {
-    await new Promise((resolve) => window.setTimeout(resolve, 650))
+    const savedUser = await profileApi.update({
+      name: userInfo.name,
+      email: userInfo.email,
+      phone: userInfo.phone,
+      organization: userInfo.organization
+    })
+    if (securityForm.oldPassword || securityForm.newPassword || securityForm.confirmPassword) {
+      if (!securityForm.oldPassword || !securityForm.newPassword) {
+        ElMessage.error('请输入旧密码和新密码')
+        return
+      }
+      await profileApi.password({ oldPassword: securityForm.oldPassword, newPassword: securityForm.newPassword })
+      Object.assign(securityForm, { oldPassword: '', newPassword: '', confirmPassword: '' })
+    }
+    await profileApi.preferences({ preferences, notification })
+    if (avatarFile.value) {
+      const result = await profileApi.avatar(avatarFile.value)
+      userInfo.avatar = assetUrl(result.avatarUrl)
+      avatarFile.value = null
+    }
+    tokenStore.setUser(savedUser)
     ElMessage.success('个人设置已保存')
+  } catch (error) {
+    ElMessage.error(error.message || '个人设置保存失败')
   } finally {
     saving.value = false
   }
 }
+
+const loadProfile = async () => {
+  try {
+    const user = await profileApi.get()
+    Object.assign(userInfo, {
+      name: user.name || userInfo.name,
+      employeeId: user.account || userInfo.employeeId,
+      email: user.email || '',
+      phone: user.phone || '',
+      organization: user.organization || userInfo.organization,
+      role: roleLabel(user.role),
+      avatar: assetUrl(user.avatarUrl)
+    })
+    tokenStore.setUser(user)
+  } catch (error) {
+    ElMessage.error(error.message || '个人资料加载失败')
+  }
+}
+
+const roleLabel = (role) => ({ admin: '系统管理员', analyst: '数据分析员', user: '普通用户' }[role] || '平台用户')
+
+onMounted(loadProfile)
 
 onUnmounted(() => {
   if (avatarPreview.value) URL.revokeObjectURL(avatarPreview.value)

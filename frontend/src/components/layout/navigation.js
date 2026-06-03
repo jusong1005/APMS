@@ -4,11 +4,18 @@ import {
   BrainCircuit,
   ClipboardList,
   LineChart,
+  Monitor,
   Settings,
   UsersRound
 } from 'lucide-vue-next'
 
 export const navigationItems = [
+  {
+    key: 'screen',
+    label: '监控大屏',
+    icon: Monitor,
+    breadcrumb: ['农产品价格监控', '监控大屏']
+  },
   {
     key: 'dashboard',
     label: '监控大盘',

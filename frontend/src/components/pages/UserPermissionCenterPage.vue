@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   Download,
@@ -13,6 +13,7 @@ import {
   UserCog,
   UsersRound
 } from 'lucide-vue-next'
+import { userApi } from '../../lib/api'
 
 const roleOptions = [
   { value: 'admin', label: '管理员' },
@@ -147,6 +148,7 @@ const selectedUsers = ref([])
 const userFormRef = ref(null)
 const dialogVisible = ref(false)
 const dialogMode = ref('create')
+const loading = ref(false)
 const deleteDialog = reactive({ visible: false, ids: [], names: [] })
 
 const userForm = reactive({
@@ -237,39 +239,20 @@ const submitUserForm = async () => {
   const valid = await userFormRef.value?.validate().catch(() => false)
   if (!valid) return
 
-  if (dialogMode.value === 'create') {
-    userRows.value.unshift({
-      id: Date.now(),
-      name: userForm.name,
-      account: userForm.account,
-      email: userForm.email,
-      phone: userForm.phone,
-      role: userForm.role,
-      organization: userForm.organization,
-      active: userForm.active,
-      online: false,
-      createdThisWeek: true,
-      lastLogin: '尚未登录',
-      permissions: { ...userForm.permissions }
-    })
-    ElMessage.success('新增用户已保存')
-  } else {
-    const target = userRows.value.find((user) => user.id === userForm.id)
-    if (target) {
-      Object.assign(target, {
-        name: userForm.name,
-        account: userForm.account,
-        email: userForm.email,
-        phone: userForm.phone,
-        role: userForm.role,
-        organization: userForm.organization,
-        active: userForm.active,
-        permissions: { ...userForm.permissions }
-      })
+  try {
+    const payload = buildUserPayload()
+    if (dialogMode.value === 'create') {
+      await userApi.create(payload)
+      ElMessage.success('新增用户已保存，默认密码 Agri@123456')
+    } else {
+      await userApi.update(userForm.id, payload)
+      ElMessage.success('用户信息已更新')
     }
-    ElMessage.success('用户信息已更新')
+    await loadUsers()
+    dialogVisible.value = false
+  } catch (error) {
+    ElMessage.error(error.message || '用户保存失败')
   }
-  dialogVisible.value = false
 }
 
 const handleSelectionChange = (selection) => {
@@ -283,36 +266,107 @@ const requestDelete = (users) => {
   deleteDialog.visible = true
 }
 
-const confirmDelete = () => {
-  userRows.value = userRows.value.filter((user) => !deleteDialog.ids.includes(user.id))
+const confirmDelete = async () => {
+  try {
+    await Promise.all(deleteDialog.ids.map((id) => userApi.remove(id)))
+    await loadUsers()
+    selectedUsers.value = []
+    ElMessage.success('用户已删除')
+  } catch (error) {
+    ElMessage.error(error.message || '用户删除失败')
+  }
   selectedUsers.value = []
   deleteDialog.visible = false
-  ElMessage.success('用户已删除')
 }
 
-const applyBatchRole = (role) => {
+const applyBatchRole = async (role) => {
   const selectedIds = selectedUsers.value.map((user) => user.id)
-  userRows.value.forEach((user) => {
-    if (!selectedIds.includes(user.id)) return
-    user.role = role
-    user.permissions = {
-      editSystem: role === 'admin',
-      runPipeline: role !== 'user'
-    }
-  })
-  ElMessage.success(`已批量修改为${roleMeta[role].label}`)
+  try {
+    await Promise.all(selectedIds.map((id) => userApi.changeRole(id, role)))
+    await loadUsers()
+    ElMessage.success(`已批量修改为${roleMeta[role].label}`)
+  } catch (error) {
+    ElMessage.error(error.message || '批量修改角色失败')
+  }
 }
 
-const handleRowCommand = (command, user) => {
+const handleRowCommand = async (command, user) => {
   if (command === 'reset') {
-    ElMessage.success(`已向 ${user.name} 发送密码重置链接`)
+    try {
+      await userApi.resetPassword(user.id)
+      ElMessage.success(`${user.name} 的密码已重置为 Agri@123456`)
+    } catch (error) {
+      ElMessage.error(error.message || '密码重置失败')
+    }
   }
   if (command === 'delete') requestDelete(user)
+}
+
+const updateUserStatus = async (user) => {
+  try {
+    await userApi.changeStatus(user.id, user.active)
+    ElMessage.success(`${user.name} 已${user.active ? '启用' : '禁用'}`)
+  } catch (error) {
+    user.active = !user.active
+    ElMessage.error(error.message || '账号状态更新失败')
+  }
 }
 
 const exportUsers = () => {
   ElMessage.success('用户列表导出任务已创建')
 }
+
+const loadUsers = async () => {
+  loading.value = true
+  try {
+    const rows = await userApi.list()
+    userRows.value = rows.map(normalizeUser)
+  } catch (error) {
+    ElMessage.error(error.message || '用户列表加载失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const buildUserPayload = () => ({
+  account: userForm.account,
+  name: userForm.name,
+  email: userForm.email,
+  phone: userForm.phone,
+  role: userForm.role,
+  organization: userForm.organization,
+  active: userForm.active
+})
+
+const normalizeUser = (user) => {
+  const role = roleMeta[user.role] ? user.role : 'user'
+  return {
+    id: user.id,
+    name: user.name || user.account,
+    account: user.account,
+    email: user.email || '',
+    phone: user.phone || '',
+    role,
+    organization: user.organization || '国家农产品监测中心',
+    active: user.active,
+    online: Boolean(user.lastLoginAt),
+    createdThisWeek: isWithinDays(user.createdAt, 7),
+    lastLogin: user.lastLoginAt ? formatDate(user.lastLoginAt) : '尚未登录',
+    permissions: {
+      editSystem: role === 'admin',
+      runPipeline: role !== 'user'
+    }
+  }
+}
+
+const isWithinDays = (value, days) => {
+  if (!value) return false
+  return Date.now() - new Date(value).getTime() < days * 24 * 60 * 60 * 1000
+}
+
+const formatDate = (value) => String(value).replace('T', ' ').slice(0, 16)
+
+onMounted(loadUsers)
 </script>
 
 <template>
@@ -372,7 +426,7 @@ const exportUsers = () => {
     </div>
 
     <section class="rounded-lg border border-slate-100 bg-white shadow-sm">
-      <el-table :data="filteredUsers" size="small" class="user-table" @selection-change="handleSelectionChange">
+      <el-table v-loading="loading" :data="filteredUsers" size="small" class="user-table" @selection-change="handleSelectionChange">
         <el-table-column type="selection" width="44" />
         <el-table-column label="用户信息" min-width="220">
           <template #default="{ row }">
@@ -411,7 +465,7 @@ const exportUsers = () => {
         </el-table-column>
         <el-table-column label="账号状态" min-width="100" align="center">
           <template #default="{ row }">
-            <el-switch v-model="row.active" active-text="启用" inactive-text="禁用" inline-prompt />
+            <el-switch v-model="row.active" active-text="启用" inactive-text="禁用" inline-prompt @change="updateUserStatus(row)" />
           </template>
         </el-table-column>
         <el-table-column prop="lastLogin" label="最后登录时间" min-width="140" />

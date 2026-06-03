@@ -1,10 +1,12 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import { AlertTriangle, BellRing, CheckCircle2, Clock3, Eye, Flame, RadioTower, Settings2, ShieldAlert, Siren, TrendingUp } from 'lucide-vue-next'
 import Badge from '../ui/Badge.vue'
 import Button from '../ui/Button.vue'
+import { alertApi } from '../../lib/api'
 
-const rules = [
+const rules = ref([
   {
     id: 'rule-pork-rise',
     name: '猪肉价格快速上涨',
@@ -35,9 +37,9 @@ const rules = [
     level: 'medium',
     enabled: true
   }
-]
+])
 
-const records = [
+const records = ref([
   {
     id: 'A-20260530-001',
     time: '09:18:42',
@@ -78,7 +80,7 @@ const records = [
     level: 'high',
     owner: '预测分析岗'
   }
-]
+])
 
 const statusTabs = [
   { value: 'all', label: '全部' },
@@ -101,15 +103,58 @@ const statusMeta = {
 const activeStatus = ref('all')
 
 const summary = computed(() => ({
-  high: records.filter((item) => item.level === 'high').length,
-  processing: records.filter((item) => item.status === 'processing').length,
-  closed: records.filter((item) => item.status === 'closed').length
+  high: records.value.filter((item) => item.level === 'high').length,
+  processing: records.value.filter((item) => item.status === 'processing').length,
+  closed: records.value.filter((item) => item.status === 'closed').length
 }))
 
 const filteredRecords = computed(() => {
-  if (activeStatus.value === 'all') return records
-  return records.filter((item) => item.status === activeStatus.value)
+  if (activeStatus.value === 'all') return records.value
+  return records.value.filter((item) => item.status === activeStatus.value)
 })
+
+const loadAlerts = async () => {
+  try {
+    const [ruleRows, recordRows] = await Promise.all([alertApi.rules(), alertApi.records()])
+    rules.value = (Array.isArray(ruleRows) ? ruleRows : []).map(normalizeRule)
+    records.value = (Array.isArray(recordRows) ? recordRows : []).map(normalizeRecord)
+  } catch (error) {
+    ElMessage.error(error.message || '预警数据加载失败')
+  }
+}
+
+const normalizeRule = (rule) => {
+  const threshold = Number(rule.threshold_percent ?? rule.thresholdPercent ?? 0)
+  return {
+    id: rule.id || rule._id,
+    name: rule.name || `${rule.product_name || '农产品'}价格波动预警`,
+    condition: rule.condition || `当${rule.product_name || '监控对象'}价格波动超过 ${threshold}% 时触发推送`,
+    product: rule.product_name || rule.product || '全部品类',
+    threshold: `涨跌幅 > ${threshold}%`,
+    channel: rule.channel || '站内通知',
+    level: threshold >= 10 ? 'high' : 'medium',
+    enabled: Boolean(rule.enabled)
+  }
+}
+
+const normalizeRecord = (record) => {
+  const rate = Number(record.change_rate ?? record.changeRate ?? 0)
+  return {
+    id: record.id || record._id,
+    time: formatTime(record.detected_at || record.detectedAt),
+    title: record.title || `${record.product_name || record.product || '农产品'}价格${rate >= 0 ? '上涨' : '下跌'} ${Math.abs(rate).toFixed(1)}%`,
+    detail: record.detail || `${record.region || '全国'} ${record.product_name || record.product || '农产品'}价格波动达到预警阈值。`,
+    scope: record.scope || `${record.region || '全国'}重点市场`,
+    status: mapRecordStatus(record.status),
+    level: record.level === 'high' ? 'high' : 'medium',
+    owner: record.owner || '价格监测岗'
+  }
+}
+
+const mapRecordStatus = (status) => ({ open: 'processing', acknowledged: 'read', closed: 'closed' }[status] || status || 'processing')
+const formatTime = (value) => value ? String(value).replace('T', ' ').slice(0, 19) : '-'
+
+onMounted(loadAlerts)
 </script>
 
 <template>

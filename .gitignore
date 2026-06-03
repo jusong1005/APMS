@@ -32,6 +32,10 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Java / Maven
+target/
+backend/uploads/
+
 # Generated project artifacts
 output/
 农产品价格采集监控平台/

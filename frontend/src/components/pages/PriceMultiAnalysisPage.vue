@@ -7,6 +7,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { AlertTriangle, Lightbulb, MapPin, TrendingUp } from 'lucide-vue-next'
 import Badge from '../ui/Badge.vue'
 import { cityCoverageStats, defaultAreaPaths, marketTree } from '../../data/chinaMarkets'
+import { analysisApi } from '../../lib/api'
 
 echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
@@ -30,6 +31,9 @@ const timeRange = ref('30d')
 const category = ref('vegetable')
 const selectedAreaPaths = ref(clonePaths(defaultAreaPaths))
 const chartRef = ref(null)
+const analysisOverview = ref(null)
+const productStats = ref([])
+const regionStats = ref([])
 let chartInstance
 let resizeObserver
 
@@ -75,11 +79,21 @@ const avgOffset = computed(() => ((stats.value.average - stats.value.lowest) / (
 const changeLabel = computed(() => `${stats.value.change >= 0 ? '上涨' : '下降'}${Math.abs(stats.value.change).toFixed(1)}%`)
 const chartOption = computed(() => buildChartOption(series.value))
 const briefings = computed(() => [
-  { icon: TrendingUp, title: '本周价格简报', text: `${product.value} 较上周环比${changeLabel.value}，均价为 ${stats.value.average.toFixed(2)} 元/公斤。`, toneClass: 'bg-forest-50 text-forest-700 border-forest-100' },
-  { icon: MapPin, title: '区域分化', text: `${stats.value.leader.region} 当前价格最高，覆盖具体市场 ${activeMarkets.value.length} 个。`, toneClass: 'bg-amber-50 text-amber-700 border-amber-100' },
+  { icon: TrendingUp, title: '本周价格简报', text: overviewText.value, toneClass: 'bg-forest-50 text-forest-700 border-forest-100' },
+  { icon: MapPin, title: '区域分化', text: regionText.value, toneClass: 'bg-amber-50 text-amber-700 border-amber-100' },
   { icon: AlertTriangle, title: '波动提示', text: stats.value.change > 4 ? '涨幅超过常规观察线，建议进入价格预警中心跟踪。' : '价格处于正常波动区间，可保持常规监控。', toneClass: stats.value.change > 4 ? 'bg-red-50 text-red-700 border-red-100' : 'bg-forest-50 text-forest-700 border-forest-100' },
   { icon: Lightbulb, title: '运营建议', text: '建议结合采集任务成功率和气象影响数据判断短期供应压力。', toneClass: 'bg-slate-100 text-slate-600 border-slate-200' }
 ])
+const overviewText = computed(() => {
+  const overview = analysisOverview.value
+  if (!overview) return `${product.value} 较上周环比${changeLabel.value}，均价为 ${stats.value.average.toFixed(2)} 元/公斤。`
+  return `后端已入库 ${formatCount(overview.price_records)} 条价格记录，覆盖 ${formatCount(overview.product_count)} 类农产品，均价 ${Number(overview.average_price_mean || stats.value.average).toFixed(2)} 元/公斤。`
+})
+const regionText = computed(() => {
+  const leader = regionStats.value[0]
+  if (!leader) return `${stats.value.leader.region} 当前价格最高，覆盖具体市场 ${activeMarkets.value.length} 个。`
+  return `${leader.region || '重点区域'} 当前样本 ${formatCount(leader.record_count)} 条，区域均价 ${Number(leader.mean_price || 0).toFixed(2)} 元/公斤。`
+})
 
 function flattenMarkets(tree) {
   const leaves = []
@@ -133,7 +147,11 @@ watch(selectedAreaPaths, (paths) => {
   if (!paths.length) resetAreaSelection()
 })
 
-onMounted(() => nextTick(initChart))
+onMounted(async () => {
+  await loadAnalysisSummary()
+  await nextTick()
+  initChart()
+})
 onUnmounted(() => {
   if (chartInstance?.__resizeHandler) window.removeEventListener('resize', chartInstance.__resizeHandler)
   resizeObserver?.disconnect()
@@ -184,6 +202,25 @@ function buildChartOption(inputSeries) {
       emphasis: { focus: 'series' }
     }))
   }
+}
+
+async function loadAnalysisSummary() {
+  try {
+    const [overview, products, regions] = await Promise.all([
+      analysisApi.overview(),
+      analysisApi.productStatistics(),
+      analysisApi.regionStatistics()
+    ])
+    analysisOverview.value = overview
+    productStats.value = Array.isArray(products) ? products : []
+    regionStats.value = (Array.isArray(regions) ? regions : []).sort((first, second) => Number(second.mean_price || 0) - Number(first.mean_price || 0))
+  } catch {
+    analysisOverview.value = null
+  }
+}
+
+function formatCount(value) {
+  return Number(value || 0).toLocaleString('zh-CN')
 }
 
 function average(values) {

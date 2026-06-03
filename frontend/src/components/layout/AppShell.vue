@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import Header from './Header.vue'
 import Sidebar from './Sidebar.vue'
 import { navigationItems } from './navigation.js'
+import DashboardScreenPage from '../pages/DashboardScreenPage.vue'
 import DashboardPage from '../pages/DashboardPage.vue'
 import CollectionTasksPage from '../pages/CollectionTasksPage.vue'
 import PriceMultiAnalysisPage from '../pages/PriceMultiAnalysisPage.vue'
@@ -14,10 +15,22 @@ import ProfileSettingsPage from '../pages/ProfileSettingsPage.vue'
 import Badge from '../ui/Badge.vue'
 import Button from '../ui/Button.vue'
 
-const activeKey = ref('dashboard')
+defineProps({
+  user: { type: Object, default: null }
+})
+
+const emit = defineEmits(['logout'])
+
+const activeKey = ref('screen')
 const collapsed = ref(false)
 
 const pages = {
+  screen: {
+    title: '全国农产品价格监控大屏',
+    description: '集中展示价格指数、实时采集链路、重点品类和异常预警，适合监控室投屏。',
+    immersive: true,
+    component: DashboardScreenPage
+  },
   dashboard: {
     title: '全国农产品价格监控大盘',
     description: '汇总采集、清洗、入库、价格波动和预警状态，支撑全国市场价格监测。',
@@ -74,10 +87,10 @@ const activeNav = computed(() => navigationItems.find((item) => item.key === act
       @collapse-change="collapsed = $event"
     />
     <div :class="['min-h-screen transition-all duration-300', collapsed ? 'pl-[76px]' : 'pl-[248px]']">
-      <Header :breadcrumbs="activeNav.breadcrumb" @navigate="activeKey = $event" />
-      <main class="thin-scrollbar h-[calc(100vh-64px)] overflow-y-auto bg-[#f8fafc] px-6 py-6">
-        <section :key="activeKey" class="page-transition mx-auto max-w-[1480px] space-y-6">
-          <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+      <Header :breadcrumbs="activeNav.breadcrumb" :user="user" @navigate="activeKey = $event" @logout="emit('logout')" />
+      <main :class="['thin-scrollbar h-[calc(100vh-64px)] overflow-y-auto', activePage.immersive ? 'bg-[#071f16]' : 'bg-[#f8fafc] px-6 py-6']">
+        <section :key="activeKey" :class="activePage.immersive ? 'page-transition min-h-full' : 'page-transition mx-auto max-w-[1480px] space-y-6'">
+          <div v-if="!activePage.immersive" class="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div class="space-y-2">
               <div class="flex flex-wrap items-center gap-2">
                 <Badge variant="outline">Enterprise Shell</Badge>

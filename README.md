@@ -27,6 +27,7 @@ PM/
 │   ├── processed/        # 历史 processed 样例数据
 │   └── scripts/          # Python 实时采集和 Kafka 生产者
 ├── scala-cleaner/        # Scala/Spark Kafka 清洗并写 MongoDB
+├── backend/              # Spring Boot 3 后端 API 服务
 ├── models/               # 前端/文档保留的数据结构说明
 ├── frontend/             # Vue 前端应用
 │   ├── src/
@@ -84,6 +85,16 @@ spark-submit --class com.agri.pipeline.AgriKafkaMongoCleaner target/agri-scala-c
 | MongoDB agri_price.price_data | Scala/Spark 清洗后的价格数据 |
 | MongoDB agri_price.weather_data | Scala/Spark 清洗后的气象数据 |
 | MongoDB agri_price.invalid_events | 清洗失败或字段异常的数据 |
+
+### Spring Boot 后端环境
+
+```bash
+source ../../servers/env.sh
+cd backend
+mvn spring-boot:run
+```
+
+后端默认监听 `8080`，首次启动会创建开发管理员 `admin / Agri@123456`，接口说明见 `backend/README.md`。
 
 ### 前端环境
 

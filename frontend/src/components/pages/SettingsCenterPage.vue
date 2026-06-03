@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   ActivitySquare,
@@ -14,6 +14,7 @@ import {
   Trash2,
   Zap
 } from 'lucide-vue-next'
+import { settingsApi } from '../../lib/api'
 
 const activeSection = ref('global')
 const dirtyFields = ref({})
@@ -63,18 +64,18 @@ const refreshOptions = [
   { label: '5min', value: '5min' }
 ]
 
-const databaseStatus = [
+const databaseStatus = ref([
   { name: 'MongoDB', role: '生产行情库', status: 'connected', latency: '18 ms', endpoint: 'agri_price' },
   { name: 'Redis', role: '热点缓存库', status: 'connected', latency: '3 ms', endpoint: '127.0.0.1:6379' }
-]
+])
 
-const auditLogs = [
+const auditLogs = ref([
   { time: '2026-05-30 09:28:16', operator: 'admin', action: '更新异常价格波动阈值', ip: '10.24.18.32' },
   { time: '2026-05-30 09:12:04', operator: 'ops_chen', action: '开启自动清洗开关', ip: '10.24.18.77' },
   { time: '2026-05-29 22:45:51', operator: 'data_li', action: '调整采集并发限制', ip: '10.24.20.16' },
   { time: '2026-05-29 20:10:39', operator: 'admin', action: '刷新 User-Agent 池', ip: '10.24.18.32' },
   { time: '2026-05-29 18:33:20', operator: 'model_wang', action: '重置趋势预测模型', ip: '10.24.21.90' }
-]
+])
 
 const dirtyCount = computed(() => Object.values(dirtyFields.value).filter(Boolean).length)
 
@@ -89,10 +90,28 @@ const scrollToSection = (key) => {
   document.getElementById(`settings-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-const saveAll = () => {
+const saveAll = async () => {
   const hadDirtyFields = dirtyCount.value > 0
-  dirtyFields.value = {}
-  ElMessage.success(hadDirtyFields ? '所有配置已保存' : '当前配置已同步')
+  try {
+    await settingsApi.save({
+      siteName: globalConfig.siteName,
+      apiPrefix: globalConfig.apiPrefix,
+      maintenanceMode: globalConfig.maintenanceMode,
+      refreshRate: globalConfig.refreshRate,
+      retryCount: crawlerConfig.retryCount,
+      timeoutMs: crawlerConfig.timeoutMs,
+      concurrency: crawlerConfig.concurrency,
+      userAgents: crawlerConfig.userAgents,
+      alertThresholdPercent: qualityConfig.abnormalWavePercent,
+      missingTolerance: qualityConfig.missingTolerance,
+      autoClean: qualityConfig.autoClean
+    })
+    dirtyFields.value = {}
+    ElMessage.success(hadDirtyFields ? '所有配置已保存' : '当前配置已同步')
+    await loadSettings()
+  } catch (error) {
+    ElMessage.error(error.message || '配置保存失败')
+  }
 }
 
 const openDangerAction = (type) => {
@@ -116,6 +135,61 @@ const executeDangerAction = () => {
   dangerDialog.visible = false
   ElMessage.success(dangerDialog.success)
 }
+
+const loadSettings = async () => {
+  try {
+    const [settings, dbStatus, logs] = await Promise.all([
+      settingsApi.get(),
+      settingsApi.dbStatus(),
+      settingsApi.auditLogs()
+    ])
+    applySettings(settings)
+    databaseStatus.value = normalizeDatabaseStatus(dbStatus)
+    auditLogs.value = (Array.isArray(logs) ? logs : []).slice(0, 20).map(normalizeAuditLog)
+  } catch (error) {
+    ElMessage.error(error.message || '系统配置加载失败')
+  }
+}
+
+const applySettings = (settings = {}) => {
+  globalConfig.siteName = settings.siteName || globalConfig.siteName
+  globalConfig.apiPrefix = settings.apiPrefix || globalConfig.apiPrefix
+  globalConfig.maintenanceMode = Boolean(settings.maintenanceMode ?? globalConfig.maintenanceMode)
+  globalConfig.refreshRate = settings.refreshRate || globalConfig.refreshRate
+  crawlerConfig.retryCount = Number(settings.retryCount ?? crawlerConfig.retryCount)
+  crawlerConfig.timeoutMs = String(settings.timeoutMs ?? crawlerConfig.timeoutMs)
+  crawlerConfig.concurrency = Number(settings.concurrency ?? crawlerConfig.concurrency)
+  crawlerConfig.userAgents = settings.userAgents || crawlerConfig.userAgents
+  qualityConfig.abnormalWavePercent = Number(settings.alertThresholdPercent ?? qualityConfig.abnormalWavePercent)
+  qualityConfig.missingTolerance = Number(settings.missingTolerance ?? qualityConfig.missingTolerance)
+  qualityConfig.autoClean = Boolean(settings.autoClean ?? qualityConfig.autoClean)
+}
+
+const normalizeDatabaseStatus = (status = {}) => ([
+  {
+    name: 'MongoDB',
+    role: '生产行情库',
+    status: status.mongodb?.status === 'up' ? 'connected' : 'error',
+    latency: status.mongodb?.status === 'up' ? '已连通' : '异常',
+    endpoint: 'agri_price'
+  },
+  {
+    name: 'Redis',
+    role: '热点缓存库',
+    status: status.redis?.status === 'up' ? 'connected' : 'error',
+    latency: status.redis?.detail || status.redis?.message || '-',
+    endpoint: '127.0.0.1:6379'
+  }
+])
+
+const normalizeAuditLog = (log) => ({
+  time: String(log.created_at || log.createdAt || log.time || '').replace('T', ' ').slice(0, 19),
+  operator: log.operator || log.user_id || 'system',
+  action: log.action || log.detail || '-',
+  ip: log.ip || '-'
+})
+
+onMounted(loadSettings)
 </script>
 
 <template>

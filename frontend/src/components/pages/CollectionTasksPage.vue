@@ -1,8 +1,10 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Activity, AlertTriangle, Clock3, DatabaseZap, FileText, Pencil, Pause, Play, Plus, Search, ServerOff } from 'lucide-vue-next'
 import Badge from '../ui/Badge.vue'
 import Button from '../ui/Button.vue'
+import { taskApi } from '../../lib/api'
 
 const statusOptions = [
   { value: 'all', label: '全部状态' },
@@ -11,7 +13,7 @@ const statusOptions = [
   { value: 'error', label: '异常' }
 ]
 
-const tasks = [
+const defaultTasks = [
   { id: 'xf-001', name: '北京新发地价格采集', source: '新发地批发市场', frequency: '5分钟/次', lastSync: '2026-05-30 00:28:12', successRate: 99.2, status: 'running', backlog: 128 },
   { id: 'sg-002', name: '寿光蔬菜行情采集', source: '寿光蔬菜网', frequency: '10分钟/次', lastSync: '2026-05-30 00:24:35', successRate: 97.8, status: 'running', backlog: 86 },
   { id: 'moa-003', name: '农业农村部价格指数同步', source: '农业农村部官网', frequency: '30分钟/次', lastSync: '2026-05-30 00:02:41', successRate: 96.4, status: 'running', backlog: 42 },
@@ -21,6 +23,8 @@ const tasks = [
   { id: 'fresh-007', name: '生鲜电商价格巡检', source: '主流农产品电商平台', frequency: '20分钟/次', lastSync: '2026-05-30 00:11:16', successRate: 94.9, status: 'running', backlog: 213 }
 ]
 
+const tasks = ref(defaultTasks)
+
 const statusMeta = {
   running: { label: '运行中', className: 'bg-forest-100 text-forest-800 border-transparent', icon: Play },
   stopped: { label: '已停止', className: 'bg-slate-100 text-slate-600 border-transparent', icon: Pause },
@@ -29,10 +33,12 @@ const statusMeta = {
 
 const status = ref('all')
 const keyword = ref('')
+const refreshing = ref(false)
+const refreshedAt = ref('00:30:12')
 
 const filteredTasks = computed(() => {
   const normalizedKeyword = keyword.value.trim().toLowerCase()
-  return tasks.filter((task) => {
+  return tasks.value.filter((task) => {
     const matchStatus = status.value === 'all' || task.status === status.value
     const matchKeyword = !normalizedKeyword || `${task.name} ${task.source}`.toLowerCase().includes(normalizedKeyword)
     return matchStatus && matchKeyword
@@ -40,9 +46,10 @@ const filteredTasks = computed(() => {
 })
 
 const summary = computed(() => {
-  const runningTasks = tasks.filter((task) => task.status === 'running')
-  const totalBacklog = tasks.reduce((sum, task) => sum + task.backlog, 0)
-  const averageRate = tasks.reduce((sum, task) => sum + task.successRate, 0) / tasks.length
+  const rows = tasks.value.length ? tasks.value : defaultTasks
+  const runningTasks = rows.filter((task) => task.status === 'running')
+  const totalBacklog = rows.reduce((sum, task) => sum + Number(task.backlog || 0), 0)
+  const averageRate = rows.reduce((sum, task) => sum + Number(task.successRate || 0), 0) / rows.length
   return {
     successRate: averageRate.toFixed(1),
     backlog: totalBacklog.toLocaleString('zh-CN'),
@@ -55,6 +62,56 @@ const monitorCards = computed(() => [
   { icon: DatabaseZap, title: '待处理数据积压量', value: summary.value.backlog, detail: '等待清洗与入库的数据记录', toneClass: 'bg-amber-50 text-amber-700 border-amber-100' },
   { icon: ServerOff, title: '离线采集点', value: summary.value.offline, detail: '已停止或异常的数据源', toneClass: 'bg-red-50 text-red-700 border-red-100' }
 ])
+
+const loadTasks = async () => {
+  refreshing.value = true
+  try {
+    const rows = await taskApi.list({ status: status.value, keyword: keyword.value })
+    tasks.value = rows.map(normalizeTask)
+    refreshedAt.value = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date())
+  } catch (error) {
+    ElMessage.error(error.message || '采集任务加载失败')
+  } finally {
+    refreshing.value = false
+  }
+}
+
+const toggleTask = async (task) => {
+  try {
+    if (task.status === 'running') {
+      await taskApi.stop(task.id)
+      ElMessage.success('任务已暂停')
+    } else {
+      await taskApi.start(task.id)
+      ElMessage.success('任务已启动')
+    }
+    await loadTasks()
+  } catch (error) {
+    ElMessage.error(error.message || '任务状态更新失败')
+  }
+}
+
+const viewLogs = async (task) => {
+  try {
+    const logs = await taskApi.logs(task.id)
+    ElMessage.info(logs?.[0]?.message || '暂无运行日志')
+  } catch (error) {
+    ElMessage.error(error.message || '日志加载失败')
+  }
+}
+
+const normalizeTask = (task) => ({
+  id: task.id || task._id,
+  name: task.name || '未命名采集任务',
+  source: task.source || '未配置数据源',
+  frequency: task.frequency || '未设置',
+  lastSync: task.lastSync || task.last_sync || task.updated_at || '-',
+  successRate: Number(task.successRate ?? task.success_rate ?? 0),
+  status: statusMeta[task.status] ? task.status : 'stopped',
+  backlog: Number(task.backlog || 0)
+})
+
+onMounted(loadTasks)
 </script>
 
 <template>
@@ -81,7 +138,7 @@ const monitorCards = computed(() => [
           <p class="mt-1 text-sm text-slate-500">统一管理市场、平台和气象来源的采集调度。</p>
         </div>
         <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Button><Plus class="h-4 w-4" />新增采集任务</Button>
+          <Button @click="ElMessage.info('新增采集任务请在后端任务接口创建')"><Plus class="h-4 w-4" />新增采集任务</Button>
           <select v-model="status" class="h-9 rounded-md border bg-white px-3 text-sm text-slate-700 shadow-sm outline-none transition-colors focus:border-forest-500 focus:ring-2 focus:ring-forest-100" aria-label="状态筛选">
             <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
@@ -100,7 +157,7 @@ const monitorCards = computed(() => [
         </div>
         <div class="flex items-center gap-2 text-xs text-slate-500">
           <Clock3 class="h-3.5 w-3.5" />
-          <span>最近刷新：00:30:12</span>
+          <span>最近刷新：{{ refreshing ? '同步中' : refreshedAt }}</span>
         </div>
       </div>
 
@@ -143,8 +200,12 @@ const monitorCards = computed(() => [
               <td class="w-[16%] px-4 py-4">
                 <div class="flex items-center justify-end gap-1.5">
                   <Button variant="ghost" size="sm" title="编辑任务"><Pencil class="h-4 w-4" />编辑</Button>
-                  <Button variant="ghost" size="sm" title="暂停任务"><Pause class="h-4 w-4" />暂停</Button>
-                  <Button variant="ghost" size="sm" title="查看日志"><FileText class="h-4 w-4" />日志</Button>
+                  <Button variant="ghost" size="sm" :title="task.status === 'running' ? '暂停任务' : '启动任务'" @click="toggleTask(task)">
+                    <Pause v-if="task.status === 'running'" class="h-4 w-4" />
+                    <Play v-else class="h-4 w-4" />
+                    {{ task.status === 'running' ? '暂停' : '启动' }}
+                  </Button>
+                  <Button variant="ghost" size="sm" title="查看日志" @click="viewLogs(task)"><FileText class="h-4 w-4" />日志</Button>
                 </div>
               </td>
             </tr>

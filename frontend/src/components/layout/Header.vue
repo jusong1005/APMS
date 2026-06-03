@@ -4,11 +4,12 @@ import { Bell, ChevronDown, ChevronRight, Clock3, LogOut, Settings, ShieldCheck,
 import Badge from '../ui/Badge.vue'
 import Button from '../ui/Button.vue'
 
-defineProps({
-  breadcrumbs: { type: Array, required: true }
+const props = defineProps({
+  breadcrumbs: { type: Array, required: true },
+  user: { type: Object, default: null }
 })
 
-const emit = defineEmits(['navigate'])
+const emit = defineEmits(['navigate', 'logout'])
 
 const notifications = [
   { title: '新发地采集任务完成', detail: '本批次 12,480 条价格记录已入湖', level: 'default' },
@@ -23,6 +24,11 @@ const noticeMenu = ref(null)
 const userMenu = ref(null)
 let timer
 
+const displayName = computed(() => props.user?.name || props.user?.account || '平台用户')
+const organization = computed(() => props.user?.organization || '农产品价格监测中心')
+const roleName = computed(() => ({ admin: '管理员', analyst: '数据分析员', user: '普通用户' }[props.user?.role] || '平台用户'))
+const avatarText = computed(() => displayName.value.slice(0, 1))
+
 const marketTime = computed(() => new Intl.DateTimeFormat('zh-CN', {
   month: '2-digit',
   day: '2-digit',
@@ -35,6 +41,7 @@ const marketTime = computed(() => new Intl.DateTimeFormat('zh-CN', {
 const handleUserCommand = (command) => {
   userMenuOpen.value = false
   if (command === 'profile') emit('navigate', 'profile')
+  if (command === 'logout') emit('logout')
 }
 
 const closeFloatingMenus = (event) => {
@@ -107,10 +114,10 @@ onUnmounted(() => {
 
       <div ref="userMenu" class="relative">
         <button class="flex items-center gap-3 rounded-lg border bg-white px-2.5 py-1.5 shadow-sm transition-colors hover:bg-slate-50" @click="userMenuOpen = !userMenuOpen">
-          <div class="flex h-9 w-9 items-center justify-center rounded-full bg-forest-100 text-sm font-semibold text-forest-800">农</div>
+          <div class="flex h-9 w-9 items-center justify-center rounded-full bg-forest-100 text-sm font-semibold text-forest-800">{{ avatarText }}</div>
           <div class="hidden min-w-0 pr-1 text-left lg:block">
-            <p class="truncate text-sm font-semibold text-slate-900">国家农产品监测中心</p>
-            <p class="truncate text-xs text-slate-500">数据运营专员</p>
+            <p class="truncate text-sm font-semibold text-slate-900">{{ organization }}</p>
+            <p class="truncate text-xs text-slate-500">{{ displayName }} · {{ roleName }}</p>
           </div>
           <ChevronDown class="hidden h-4 w-4 text-slate-400 lg:block" />
         </button>
@@ -122,7 +129,7 @@ onUnmounted(() => {
             <Settings class="mr-2 h-4 w-4" />偏好同步
           </button>
           <div class="my-1 h-px bg-slate-100" />
-          <button class="flex w-full cursor-not-allowed items-center rounded-md px-3 py-2 text-sm text-slate-400" disabled>
+          <button class="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-red-50 hover:text-red-600" @click="handleUserCommand('logout')">
             <LogOut class="mr-2 h-4 w-4" />退出登录
           </button>
         </div>

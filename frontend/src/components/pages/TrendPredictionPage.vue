@@ -4,16 +4,18 @@ import * as echarts from 'echarts/core'
 import { BarChart, LineChart } from 'echarts/charts'
 import { GridComponent, MarkLineComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { ElMessage } from 'element-plus'
 import { AlertTriangle, BrainCircuit, CloudSun, Route, Sparkles, TrendingUp } from 'lucide-vue-next'
 import Badge from '../ui/Badge.vue'
+import { predictionApi } from '../../lib/api'
 
 echarts.use([LineChart, BarChart, GridComponent, MarkLineComponent, TooltipComponent, CanvasRenderer])
 
-const models = [
+const models = ref([
   { key: 'timeSeries', label: '时间序列模型', summary: '捕捉历史价格周期与短期波动，适合连续交易日趋势外推。', threshold: 3.18, forecastBase: [2.88, 2.9, 2.93, 2.96, 2.99, 3.01, 3.04, 3.06, 3.08, 3.1, 3.12, 3.14, 3.15, 3.17, 3.19, 3.2, 3.22, 3.23, 3.24, 3.25, 3.27, 3.28, 3.29, 3.3, 3.32, 3.33, 3.34, 3.35, 3.36, 3.38], weights: [32, 21, 16, 13, 10, 8] },
   { key: 'randomForest', label: '随机森林模型', summary: '融合多源特征判断非线性影响，适合解释关键因子贡献。', threshold: 3.24, forecastBase: [2.88, 2.91, 2.94, 2.95, 2.97, 3.0, 3.02, 3.03, 3.05, 3.08, 3.1, 3.11, 3.12, 3.14, 3.16, 3.17, 3.18, 3.19, 3.21, 3.22, 3.23, 3.24, 3.25, 3.26, 3.27, 3.28, 3.29, 3.3, 3.31, 3.32], weights: [24, 28, 18, 15, 9, 6] },
   { key: 'deepLearning', label: '深度学习模型', summary: '识别多变量长期关联，适合高维气象与市场信号联合预测。', threshold: 3.3, forecastBase: [2.88, 2.9, 2.94, 2.98, 3.01, 3.05, 3.08, 3.11, 3.14, 3.18, 3.2, 3.23, 3.26, 3.28, 3.31, 3.33, 3.36, 3.38, 3.41, 3.43, 3.45, 3.48, 3.5, 3.52, 3.55, 3.57, 3.59, 3.61, 3.64, 3.66], weights: [19, 24, 21, 17, 11, 8] }
-]
+])
 
 const factorLabels = ['季节因素', '气象灾害', '运输成本', '市场供需', '节假日需求', '采集质量']
 const factorIcons = [CloudSun, AlertTriangle, Route, TrendingUp, Sparkles, BrainCircuit]
@@ -26,7 +28,7 @@ let predictionChart
 let factorChart
 let resizeObserver
 
-const activeModel = computed(() => models.find((model) => model.key === activeModelKey.value))
+const activeModel = computed(() => models.value.find((model) => model.key === activeModelKey.value) || models.value[0])
 const chartData = computed(() => buildPredictionData(activeModel.value))
 const factorData = computed(() => buildFactorData(activeModel.value.weights))
 const forecastMax = computed(() => Math.max(...activeModel.value.forecastBase))
@@ -58,7 +60,11 @@ function updateCharts() {
 
 watch([predictionOption, factorOption], () => nextTick(updateCharts))
 
-onMounted(() => nextTick(initCharts))
+onMounted(async () => {
+  await loadPredictions()
+  await nextTick()
+  initCharts()
+})
 onUnmounted(() => {
   if (predictionChart?.__resizeHandler) window.removeEventListener('resize', predictionChart.__resizeHandler)
   resizeObserver?.disconnect()
@@ -77,6 +83,37 @@ function buildPredictionData(model) {
     bandLower: [...Array(forecastStart).fill(null), historyPrices.at(-1) - 0.08, ...model.forecastBase.map((price, index) => roundPrice(price - 0.1 - index * 0.006))],
     bandWidth: [...Array(forecastStart).fill(null), 0.16, ...model.forecastBase.map((_, index) => roundPrice(0.22 + index * 0.012))]
   }
+}
+
+async function loadPredictions() {
+  try {
+    const rows = await predictionApi.list()
+    if (!Array.isArray(rows) || !rows.length) return
+    models.value = rows.slice(0, 3).map((row, index) => buildModelFromPrediction(row, index))
+    activeModelKey.value = models.value[0].key
+  } catch (error) {
+    ElMessage.error(error.message || '预测数据加载失败')
+  }
+}
+
+function buildModelFromPrediction(row, index) {
+  const base = Number(row.next7DayAverage || row.next_7_day_average || 3)
+  const confidence = Number(row.confidence || 0.8)
+  const riskLevel = row.riskLevel || row.risk_level || 'low'
+  const modelName = modelLabel(row.model, index)
+  return {
+    key: `${row.product || row.model || 'prediction'}-${index}`,
+    label: `${row.product || '农产品'} · ${modelName}`,
+    summary: `${row.product || '农产品'}未来 7 天均价约 ${base.toFixed(2)} 元/公斤，模型置信度 ${(confidence * 100).toFixed(0)}%。`,
+    threshold: roundPrice(base * (riskLevel === 'high' ? 0.96 : riskLevel === 'medium' ? 1.04 : 1.12)),
+    forecastBase: Array.from({ length: 30 }, (_, day) => roundPrice(base + Math.sin((day + 1) / 4) * 0.08 + day * 0.01)),
+    weights: [28, 22, 17, 15, 10, 8]
+  }
+}
+
+function modelLabel(model, index) {
+  const labels = { timeSeries: '时间序列模型', weatherAware: '气象感知模型', combined: '组合模型' }
+  return labels[model] || ['时间序列模型', '随机森林模型', '深度学习模型'][index] || '预测模型'
 }
 
 function buildPredictionOption(data, threshold) {

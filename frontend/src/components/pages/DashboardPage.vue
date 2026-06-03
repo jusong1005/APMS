@@ -1,19 +1,63 @@
 <script setup>
+import { computed, onMounted, ref } from 'vue'
 import { ArrowDownRight, ArrowUpRight, Database, ServerCog, Sprout, TrendingUp } from 'lucide-vue-next'
 import Badge from '../ui/Badge.vue'
+import { dashboardApi } from '../../lib/api'
 
-const metrics = [
+const metricIcons = [Database, ServerCog, Sprout, TrendingUp]
+const metrics = ref([
   { label: '今日采集记录', value: '126,840', change: '+12.4%', trend: 'up', icon: Database },
   { label: '覆盖市场主体', value: '1,528', change: '+36', trend: 'up', icon: ServerCog },
   { label: '重点农产品', value: '512', change: '+18', trend: 'up', icon: Sprout },
   { label: '异常波动预警', value: '24', change: '-8.1%', trend: 'down', icon: TrendingUp }
-]
+])
 
-const alertItems = [
+const alertItems = ref([
   ['山东 番茄', '涨幅 18.6%', 'warning'],
   ['四川 玉米', '缺失率 4.1%', 'outline'],
   ['河南 苹果', '跌幅 12.2%', 'danger']
-]
+])
+
+const trendRows = ref([])
+const trendHeights = computed(() => {
+  if (!trendRows.value.length) return [42, 48, 44, 58, 62, 57, 66, 73, 69, 78, 86, 82]
+  const rows = trendRows.value.slice(-12)
+  const prices = rows.map((row) => Number(row.average_price || row.averagePrice || 0)).filter((value) => value > 0)
+  const max = Math.max(...prices, 1)
+  return rows.map((row) => Math.max(16, Math.round((Number(row.average_price || row.averagePrice || 0) / max) * 88)))
+})
+
+const loadDashboard = async () => {
+  try {
+    const [overview, trend, alerts] = await Promise.all([
+      dashboardApi.overview(),
+      dashboardApi.trend(),
+      dashboardApi.alerts()
+    ])
+    metrics.value = (overview.cards || []).map((card, index) => ({
+      label: card.label,
+      value: formatNumber(card.value),
+      change: card.change,
+      trend: card.trend || 'up',
+      icon: metricIcons[index] || TrendingUp
+    }))
+    trendRows.value = Array.isArray(trend) ? trend : []
+    alertItems.value = (Array.isArray(alerts) ? alerts : []).slice(0, 3).map((alert) => {
+      const rate = Number(alert.change_rate ?? alert.changeRate ?? 0)
+      return [
+        `${alert.region || '全国'} ${alert.product_name || alert.product || '农产品'}`,
+        `${rate >= 0 ? '涨幅' : '跌幅'} ${Math.abs(rate).toFixed(1)}%`,
+        alert.level === 'high' ? 'danger' : alert.level === 'medium' ? 'warning' : 'outline'
+      ]
+    })
+  } catch {
+    // 页面保留初始演示数据，避免单个接口异常影响首页展示。
+  }
+}
+
+const formatNumber = (value) => Number(value || 0).toLocaleString('zh-CN')
+
+onMounted(loadDashboard)
 </script>
 
 <template>
@@ -42,10 +86,10 @@ const alertItems = [
       <section class="rounded-lg border bg-white p-5 shadow-panel">
         <div class="mb-4">
           <h2 class="text-base font-semibold text-slate-950">全国价格指数趋势</h2>
-          <p class="mt-1 text-sm text-slate-500">ECharts 折线图区域，后续接入 /api/price-trends</p>
+          <p class="mt-1 text-sm text-slate-500">来自 /api/dashboard/trend 的价格趋势概览</p>
         </div>
         <div class="flex h-80 items-end gap-2 rounded-lg border bg-slate-50 p-5">
-          <div v-for="(height, index) in [42, 48, 44, 58, 62, 57, 66, 73, 69, 78, 86, 82]" :key="index" class="flex flex-1 flex-col items-center justify-end gap-2">
+          <div v-for="(height, index) in trendHeights" :key="index" class="flex flex-1 flex-col items-center justify-end gap-2">
             <div class="w-full rounded-t-sm bg-forest-600" :style="{ height: `${height}%` }" />
             <span class="text-xs text-slate-400">{{ index + 1 }}</span>
           </div>
