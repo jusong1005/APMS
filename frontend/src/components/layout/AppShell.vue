@@ -21,7 +21,7 @@ defineProps({
 
 const emit = defineEmits(['logout'])
 
-const activeKey = ref('screen')
+const activeKey = ref('dashboard')
 const collapsed = ref(false)
 
 const pages = {
@@ -32,7 +32,7 @@ const pages = {
     component: DashboardScreenPage
   },
   dashboard: {
-    title: '全国农产品价格监控大盘',
+    title: '全国农产品价格监控概况',
     description: '汇总采集、清洗、入库、价格波动和预警状态，支撑全国市场价格监测。',
     component: DashboardPage
   },
@@ -79,7 +79,9 @@ const activeNav = computed(() => navigationItems.find((item) => item.key === act
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#f8fafc] text-slate-950">
+  <component v-if="activePage.immersive" :is="activePage.component" @exit-screen="activeKey = 'dashboard'" />
+
+  <div v-else class="min-h-screen bg-[#f8fafc] text-slate-950">
     <Sidebar
       :active-key="activeKey"
       :collapsed="collapsed"
@@ -88,9 +90,9 @@ const activeNav = computed(() => navigationItems.find((item) => item.key === act
     />
     <div :class="['min-h-screen transition-all duration-300', collapsed ? 'pl-[76px]' : 'pl-[248px]']">
       <Header :breadcrumbs="activeNav.breadcrumb" :user="user" @navigate="activeKey = $event" @logout="emit('logout')" />
-      <main :class="['thin-scrollbar h-[calc(100vh-64px)] overflow-y-auto', activePage.immersive ? 'bg-[#071f16]' : 'bg-[#f8fafc] px-6 py-6']">
-        <section :key="activeKey" :class="activePage.immersive ? 'page-transition min-h-full' : 'page-transition mx-auto max-w-[1480px] space-y-6'">
-          <div v-if="!activePage.immersive" class="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+      <main class="thin-scrollbar h-[calc(100vh-64px)] overflow-y-auto bg-[#f8fafc] px-6 py-6">
+        <section :key="activeKey" class="page-transition mx-auto max-w-[1480px] space-y-6">
+          <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div class="space-y-2">
               <div class="flex flex-wrap items-center gap-2">
                 <Badge variant="outline">Enterprise Shell</Badge>

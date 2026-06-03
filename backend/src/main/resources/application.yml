@@ -39,6 +39,12 @@ app:
     key-prefix: ${AGRI_REDIS_KEY_PREFIX:agri:realtime}
   files:
     upload-dir: ${AGRI_UPLOAD_DIR:./uploads}
+  collector:
+    python-bin: ${AGRI_PYTHON_BIN:/home/ubuntu/agri/.venv/bin/python}
+    realtime-script: ${AGRI_REALTIME_COLLECTOR:/home/ubuntu/agri/code/PM/data/scripts/realtime_collector.py}
+    import-script: ${AGRI_IMPORT_HISTORY_SCRIPT:/home/ubuntu/agri/code/PM/data/scripts/import_history_to_mongodb.py}
+    output-dir: ${AGRI_COLLECTOR_OUTPUT_DIR:/home/ubuntu/agri/code/PM/backend/target/collector-runs}
+    timeout-seconds: ${AGRI_COLLECTOR_TIMEOUT_SECONDS:180}
 
 logging:
   level:

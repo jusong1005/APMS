@@ -25,7 +25,7 @@ final class SampleData {
             "alertCount", 24,
             "updatedAt", LocalDateTime.now().toString(),
             "cards", List.of(
-                map("label", "今日采集记录", "value", 126840, "change", "+12.4%", "trend", "up"),
+                map("label", "累计入库记录", "value", 126840, "change", "演示数据", "trend", "up"),
                 map("label", "覆盖市场主体", "value", 1528, "change", "+36", "trend", "up"),
                 map("label", "重点农产品", "value", 512, "change", "+18", "trend", "up"),
                 map("label", "异常波动预警", "value", 24, "change", "-8.1%", "trend", "down")

@@ -64,7 +64,7 @@ def raw_json(row: Dict[str, Any]) -> str:
     return json.dumps(row, ensure_ascii=False, default=str)
 
 
-def build_price_doc(row: Dict[str, str], ingested_at: datetime) -> Optional[Dict[str, Any]]:
+def build_price_doc(row: Dict[str, str], ingested_at: datetime, source_topic: str) -> Optional[Dict[str, Any]]:
     product_name = clean_text(row.get("product_name"), "")
     market_name = clean_text(row.get("market_name"), "")
     region = clean_text(row.get("region"), "其他")
@@ -92,14 +92,14 @@ def build_price_doc(row: Dict[str, str], ingested_at: datetime) -> Optional[Dict
         "unit": unit,
         "source_url": None,
         "source_event_id": None,
-        "source_topic": "historical_csv",
+        "source_topic": source_topic,
         "raw_json": raw_json(row),
         "ingested_at": ingested_at,
     }
     return doc
 
 
-def build_weather_doc(row: Dict[str, str], ingested_at: datetime) -> Optional[Dict[str, Any]]:
+def build_weather_doc(row: Dict[str, str], ingested_at: datetime, source_topic: str) -> Optional[Dict[str, Any]]:
     region = clean_text(row.get("region"), "")
     date_value = parse_date(row.get("date"))
     if not region or date_value is None:
@@ -117,7 +117,7 @@ def build_weather_doc(row: Dict[str, str], ingested_at: datetime) -> Optional[Di
         "sunshine_duration": parse_float(row.get("sunshine_duration")),
         "weather_condition": clean_text(row.get("weather_condition"), "未知"),
         "source_event_id": None,
-        "source_topic": "historical_csv",
+        "source_topic": source_topic,
         "raw_json": raw_json(row),
         "ingested_at": ingested_at,
     }
@@ -152,6 +152,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--price-csv", type=Path, default=DEFAULT_PRICE_CSV)
     parser.add_argument("--weather-csv", type=Path, default=DEFAULT_WEATHER_CSV)
     parser.add_argument("--batch-size", type=int, default=1000)
+    parser.add_argument("--source-topic", default="historical_csv")
     return parser.parse_args()
 
 
@@ -163,12 +164,12 @@ def main() -> int:
     try:
         price_result = write_batches(
             database["price_data"],
-            (build_price_doc(row, ingested_at) for row in iter_csv(args.price_csv)),
+            (build_price_doc(row, ingested_at, args.source_topic) for row in iter_csv(args.price_csv)),
             args.batch_size,
         )
         weather_result = write_batches(
             database["weather_data"],
-            (build_weather_doc(row, ingested_at) for row in iter_csv(args.weather_csv)),
+            (build_weather_doc(row, ingested_at, args.source_topic) for row in iter_csv(args.weather_csv)),
             args.batch_size,
         )
         print(json.dumps({"price_data": price_result, "weather_data": weather_result}, ensure_ascii=False, indent=2))

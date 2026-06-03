@@ -18,9 +18,9 @@ export const navigationItems = [
   },
   {
     key: 'dashboard',
-    label: '监控大盘',
+    label: '监控概况',
     icon: ActivitySquare,
-    breadcrumb: ['农产品价格监控', '监控大盘']
+    breadcrumb: ['农产品价格监控', '监控概况']
   },
   {
     key: 'collection',

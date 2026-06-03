@@ -50,9 +50,9 @@ public class DashboardService {
                 "productCount", productCount,
                 "alertCount", alertCount,
                 "cards", List.of(
-                    SampleData.map("label", "今日采集记录", "value", collectionRecords, "change", "+实时", "trend", "up"),
-                    SampleData.map("label", "覆盖市场主体", "value", marketCount, "change", "+MongoDB", "trend", "up"),
-                    SampleData.map("label", "重点农产品", "value", productCount, "change", "+MongoDB", "trend", "up"),
+                    SampleData.map("label", "累计入库记录", "value", collectionRecords, "change", "MongoDB", "trend", "up"),
+                    SampleData.map("label", "覆盖市场主体", "value", marketCount, "change", "MongoDB", "trend", "up"),
+                    SampleData.map("label", "重点农产品", "value", productCount, "change", "MongoDB", "trend", "up"),
                     SampleData.map("label", "异常波动预警", "value", alertCount, "change", "Redis/Mongo", "trend", alertCount > 0 ? "down" : "up")
                 )
             );
@@ -67,6 +67,24 @@ public class DashboardService {
         result.put("latestPrices", readRedisJson("latest_prices"));
         result.put("latestAlerts", readRedisJson("latest_alerts"));
         result.put("metrics", readRedisHash("metrics"));
+        Object latestPrices = result.get("latestPrices");
+        if (!(latestPrices instanceof List<?> priceList && !priceList.isEmpty())) {
+            List<Map<String, Object>> mongoLatestPrices = latestMongoPrices();
+            if (!mongoLatestPrices.isEmpty()) {
+                double latestAverage = mongoLatestPrices.stream()
+                    .map(row -> row.get("average_price"))
+                    .filter(Number.class::isInstance)
+                    .mapToDouble(value -> ((Number) value).doubleValue())
+                    .average()
+                    .orElse(0);
+                result.put("latestPrices", mongoLatestPrices);
+                result.put("lastBatch", SampleData.map(
+                    "status", "mongo_latest",
+                    "batch_count", mongoLatestPrices.size(),
+                    "latest_average_price", Math.round(latestAverage * 100.0) / 100.0
+                ));
+            }
+        }
         if (result.values().stream().allMatch(value -> value == null || value instanceof Map<?, ?> map && map.isEmpty())) {
             result.put("lastBatch", SampleData.map("status", "demo", "batch_count", 1280, "realtime_average_price", 4.56));
             result.put("latestPrices", SampleData.productStatistics());
@@ -143,6 +161,60 @@ public class DashboardService {
             });
         } catch (Exception exception) {
             return null;
+        }
+    }
+
+    private List<Map<String, Object>> latestMongoPrices() {
+        try {
+            List<Document> pipeline = List.of(
+                new Document("$group", new Document("_id", new Document("product_name", "$product_name").append("date", "$date"))
+                    .append("product_name", new Document("$first", "$product_name"))
+                    .append("product_category", new Document("$first", "$product_category"))
+                    .append("market_name", new Document("$first", "$market_name"))
+                    .append("region", new Document("$first", "$region"))
+                    .append("average_price", new Document("$avg", "$average_price"))
+                    .append("record_count", new Document("$sum", 1))
+                    .append("regions", new Document("$addToSet", "$region"))),
+                new Document("$sort", new Document("product_name", 1).append("_id.date", -1)),
+                new Document("$group", new Document("_id", "$product_name")
+                    .append("product_name", new Document("$first", "$product_name"))
+                    .append("product_category", new Document("$first", "$product_category"))
+                    .append("market_name", new Document("$first", "$market_name"))
+                    .append("region", new Document("$first", "$region"))
+                    .append("latest_date", new Document("$first", "$_id.date"))
+                    .append("average_price", new Document("$first", "$average_price"))
+                    .append("latest_record_count", new Document("$first", "$record_count"))
+                    .append("record_count", new Document("$sum", "$record_count"))
+                    .append("region_sets", new Document("$push", "$regions"))
+                    .append("prices", new Document("$push", "$average_price"))),
+                new Document("$project", new Document("_id", 0)
+                    .append("product_name", 1)
+                    .append("product_category", 1)
+                    .append("market_name", 1)
+                    .append("region", 1)
+                    .append("date", "$latest_date")
+                    .append("average_price", new Document("$round", List.of("$average_price", 2)))
+                    .append("price", new Document("$round", List.of("$average_price", 2)))
+                    .append("record_count", 1)
+                    .append("latest_record_count", 1)
+                    .append("region_count", new Document("$size", new Document("$reduce", new Document("input", "$region_sets")
+                        .append("initialValue", List.of())
+                        .append("in", new Document("$setUnion", List.of("$$value", "$$this"))))))
+                    .append("change_rate", new Document("$cond", List.of(
+                        new Document("$gt", List.of(new Document("$arrayElemAt", List.of("$prices", 1)), 0)),
+                        new Document("$round", List.of(new Document("$multiply", List.of(new Document("$divide", List.of(
+                            new Document("$subtract", List.of("$average_price", new Document("$arrayElemAt", List.of("$prices", 1)))),
+                            new Document("$arrayElemAt", List.of("$prices", 1))
+                        )), 100)), 1)),
+                        0
+                    )))
+                    .append("source", "mongo_latest")),
+                new Document("$sort", new Document("date", -1).append("record_count", -1)),
+                new Document("$limit", 80)
+            );
+            return mapper.toMaps(mongoTemplate.getCollection("price_data").aggregate(pipeline));
+        } catch (RuntimeException exception) {
+            return List.of();
         }
     }
 

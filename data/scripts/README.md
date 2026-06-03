@@ -14,7 +14,7 @@ pip install -r requirements.txt
 - **补充价格来源**：北京新发地农产品批发市场公开接口 `http://www.xinfadi.com.cn/getPriceData.html`
 - **气象来源**：Open-Meteo Forecast API `https://api.open-meteo.com/v1/forecast`
 - **采集内容**：全国市场价格分布、无锡朝阳电子结算价格、近几天新发地价格记录、今日近实时气象记录
-- **默认品类**：番茄、玉米、苹果、大白菜、白条猪（白条猪归一为猪肉）
+- **默认品类**：蔬菜类覆盖番茄、大白菜、黄瓜、土豆、青椒、尖椒、茄子、生菜、菠菜、萝卜、胡萝卜、西兰花、菜花、油菜、芹菜、豆角；粮食类覆盖玉米、小麦、大米、大豆、高粱、小米、荞麦、绿豆；肉禽蛋类覆盖猪肉、牛肉、羊肉、鸡肉、鸭肉、鸡蛋。
 - **定位**：仅负责网页/API 采集和字段提取，不做清洗、不入库
 
 已验证可直接访问的官方接口：
@@ -86,6 +86,16 @@ python kafka_realtime_producer.py produce --lookback-days 3
 python kafka_realtime_producer.py produce --lookback-days 3 --interval-seconds 600
 ```
 
+### 3. historical_price_collector.py — 新增品类往年价格补采
+
+该脚本用于为扩展后的蔬菜、粮食、肉禽蛋品类补采历史价格，输出字段与 `processed_price.csv` 保持一致。脚本会按北京新发地实际商品名扩展查询词，并归一化为系统品类名称，例如“牛腩/牛前腱”归为“牛肉”，“团生菜/罗马生菜”归为“生菜”：
+
+```bash
+python historical_price_collector.py --start-date 2023-01-01 --end-date 2026-06-03 --chunk-days 60 --max-retries 3 --merge
+```
+
+默认输出：`data/raw/historical_extra_price.csv`。
+
 ## 数据特点
 
 - ✅ **两份数据均为 100% 真实数据**
@@ -102,7 +112,7 @@ python kafka_realtime_producer.py produce --lookback-days 3 --interval-seconds 6
 
 | 字段 | 说明 |
 |------|------|
-| product_name | 农产品名称（番茄/玉米/苹果/大白菜/猪肉） |
+| product_name | 农产品名称（番茄/大白菜/黄瓜/土豆/青椒/尖椒/茄子/生菜/菠菜/萝卜/胡萝卜/西兰花/菜花/油菜/芹菜/豆角/玉米/小麦/大米/大豆/高粱/小米/荞麦/绿豆/苹果/猪肉/牛肉/羊肉/鸡肉/鸭肉/鸡蛋） |
 | product_category | 类别（蔬菜类/粮食类/水果类/肉禽蛋类） |
 | market_name | 市场名称 |
 | region | 地区（全国省级区域） |
